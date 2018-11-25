@@ -2,6 +2,7 @@
 *.nogit
 *.pyc
 *.npp
+*.log
 *.egg-info/
 *.min.html/
 
@@ -11,6 +12,7 @@ __javascript__/
 __pycache__/
 .mypy_cache/
 dist/
+node_modules/
 
 # ======== Directories at specific locations
 transcrypt/docs/sphinx/_build/

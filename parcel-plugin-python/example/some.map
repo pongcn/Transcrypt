@@ -1,0 +1,8 @@
+{
+	"version": 3,
+	"file": "some.js",
+	"sources": [
+		"some.py"
+	],
+	"mappings": "AAAA;AAAA;AAAA;AAAA;AAEA;AACA;AAAA;AAHA"
+}
