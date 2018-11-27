@@ -117,7 +117,8 @@ class Program:
             # This may fail legally if filteredModuleName ends on a name of something in a module, rather than of the module itself
             return Module (self, moduleName, __moduleName__, filter)
 
-class Module:
+
+class ImportedModule:
     def __init__ (self, program, name, __name__, filter):
         self.program = program
         self.name = name
@@ -125,6 +126,76 @@ class Module:
 
         # Try to find module, exception if fails
         self.findPaths (filter)
+
+    def findPaths (self, filter):
+        # Filter to get hyphens and/or dots in name if a suitable alias is defined
+        # The filter function, and with it the active aliases, are passed by the importing module
+        rawRelSourceSlug = self.name.replace ('.', '/')
+        relSourceSlug = filter (rawRelSourceSlug) if filter and utils.commandArgs.alimod else rawRelSourceSlug
+
+        '''
+        # BEGIN DEBUGGING CODE
+        print ()
+        print ('Raw slug   :', rawRelSourceSlug)
+        print ('Cooked slug:', relSourceSlug)
+        print ()
+        # END DEBUGGING CODE
+        '''
+
+        for searchDir in self.program.moduleSearchDirs:
+            # Find source slugs
+            sourceSlug = f'{searchDir}/{relSourceSlug}'
+            if os.path.isdir (sourceSlug):
+                self.sourceDir = sourceSlug
+                self.sourcePrename = '__init__'
+            else:
+                self.sourceDir, self.sourcePrename = sourceSlug.rsplit ('/', 1)
+            self.sourcePrepath = f'{self.sourceDir}/{self.sourcePrename}'
+            self.pythonSourcePath = f'{self.sourcePrepath}.py'
+            self.javascriptSourcePath = f'{self.sourcePrepath}.js'
+
+            # Find target slugs
+            self.targetPrepath = f'{self.program.targetDir}/{self.name}'
+            self.targetName = f'{self.name}.js'
+            self.targetPath = f'{self.targetPrepath}.js'
+            self.prettyTargetName = f'{self.name}.pretty.js'
+            self.prettyTargetPath = f'{self.targetPrepath}.pretty.js'
+            self.importRelPath = f'./{self.name}.js'
+            self.treePath = f'{self.targetPrepath}.tree'
+            self.mapPath =  f'{self.targetPrepath}.map'
+            self.prettyMapPath = f'{self.targetPrepath}.shrink.map'
+            self.shrinkMapName = f'{self.name}.shrink.map'
+            self.shrinkMapPath = f'{self.targetPrepath}.shrink.map'
+            self.mapSourcePath = f'{self.targetPrepath}.py'
+            self.mapRef = f'\n//# sourceMappingURL={self.name}.map'
+
+            # If module exists
+            if os.path.isfile (self.pythonSourcePath) or os.path.isfile (self.javascriptSourcePath):
+                # Check if it's a JavaScript-only module
+                self.isJavascriptOnly = os.path.isfile (self.javascriptSourcePath) and not os.path.isfile (self.pythonSourcePath)
+                # Set more paths (tree, sourcemap, ...)
+                # (To do)
+                self.sourcePath = self.javascriptSourcePath if self.isJavascriptOnly else self.pythonSourcePath
+                self.importRelName = './{}{}'.format(self.name, '.js' if self.isJavascriptOnly else '.py')
+                break
+
+            # Remember all fruitless paths to give a decent error report if module isn't found
+            # Note that this aren't all searched paths for a particular module,
+            # since the difference between an module and a facility inside a module isn't always known a priori
+            self.program.searchedModulePaths.extend ([self.pythonSourcePath, self.javascriptSourcePath])
+        else:
+            # If even the target can't be loaded then there's a problem with this module, root or not
+            # However, loading a module is allowed to fail (see self.revisit_ImportFrom)
+            # In that case this error is swallowed, but searchedModulePath is retained,
+            # because searching in the swallowing except branch may also fail and should mention ALL searched paths
+            raise utils.Error (
+                message = '\n\tImport error, can\'t find any of:\n\t\t{}\n'.format ('\n\t\t'. join (self.program.searchedModulePaths))
+            )
+
+
+class Module(ImportedModule):
+    def __init__ (self, program, name, __name__, filter):
+        super().__init__(program, name, __name__, filter)
 
         # Remember names of module being under compilation and line nrs of current import
         # Used for error reports
@@ -232,13 +303,13 @@ class Module:
         self.importedModuleNames = javascriptDigest.importedModuleNames
         self.exportedNames = javascriptDigest.exportedNames
 
-        for importedModuleName in self.importedModuleNames:
+        # for importedModuleName in self.importedModuleNames:
 
-            # Unfiltered hyphens allowed, since we may be in a JavaScript-only part of the module hierarchy
-            # Also these imports cannot legally fail, since the digested JavaScript code already has unambiguous imports
-            # If the JavaScript module was just generated from a Python module, it will already be in the module dictionary
-            self.program.searchedModulePaths = []
-            self.program.provide (importedModuleName)
+        #     # Unfiltered hyphens allowed, since we may be in a JavaScript-only part of the module hierarchy
+        #     # Also these imports cannot legally fail, since the digested JavaScript code already has unambiguous imports
+        #     # If the JavaScript module was just generated from a Python module, it will already be in the module dictionary
+        #     self.program.searchedModulePaths = []
+        #     self.program.provide (importedModuleName)
 
         # Remove eventual intermediate files
         utils.tryRemove (self.prettyTargetPath)
@@ -247,71 +318,6 @@ class Module:
 
         # Module not under compilation anymore, so pop it
         self.program.importStack.pop ()
-
-    def findPaths (self, filter):
-        # Filter to get hyphens and/or dots in name if a suitable alias is defined
-        # The filter function, and with it the active aliases, are passed by the importing module
-        rawRelSourceSlug = self.name.replace ('.', '/')
-        relSourceSlug = filter (rawRelSourceSlug) if filter and utils.commandArgs.alimod else rawRelSourceSlug
-
-        '''
-        # BEGIN DEBUGGING CODE
-        print ()
-        print ('Raw slug   :', rawRelSourceSlug)
-        print ('Cooked slug:', relSourceSlug)
-        print ()
-        # END DEBUGGING CODE
-        '''
-
-        for searchDir in self.program.moduleSearchDirs:
-            # Find source slugs
-            sourceSlug = f'{searchDir}/{relSourceSlug}'
-            if os.path.isdir (sourceSlug):
-                self.sourceDir = sourceSlug
-                self.sourcePrename = '__init__'
-            else:
-                self.sourceDir, self.sourcePrename = sourceSlug.rsplit ('/', 1)
-            self.sourcePrepath = f'{self.sourceDir}/{self.sourcePrename}'
-            self.pythonSourcePath = f'{self.sourcePrepath}.py'
-            self.javascriptSourcePath = f'{self.sourcePrepath}.js'
-
-            # Find target slugs
-            self.targetPrepath = f'{self.program.targetDir}/{self.name}'
-            self.targetName = f'{self.name}.js'
-            self.targetPath = f'{self.targetPrepath}.js'
-            self.prettyTargetName = f'{self.name}.pretty.js'
-            self.prettyTargetPath = f'{self.targetPrepath}.pretty.js'
-            self.importRelPath = f'./{self.name}.js'
-            self.treePath = f'{self.targetPrepath}.tree'
-            self.mapPath =  f'{self.targetPrepath}.map'
-            self.prettyMapPath = f'{self.targetPrepath}.shrink.map'
-            self.shrinkMapName = f'{self.name}.shrink.map'
-            self.shrinkMapPath = f'{self.targetPrepath}.shrink.map'
-            self.mapSourcePath = f'{self.targetPrepath}.py'
-            self.mapRef = f'\n//# sourceMappingURL={self.name}.map'
-
-            # If module exists
-            if os.path.isfile (self.pythonSourcePath) or os.path.isfile (self.javascriptSourcePath):
-                # Check if it's a JavaScript-only module
-                self.isJavascriptOnly = os.path.isfile (self.javascriptSourcePath) and not os.path.isfile (self.pythonSourcePath)
-                # Set more paths (tree, sourcemap, ...)
-                # (To do)
-                self.sourcePath = self.javascriptSourcePath if self.isJavascriptOnly else self.pythonSourcePath
-                self.importRelName = './{}{}'.format(self.name, '.js' if self.isJavascriptOnly else '.py')
-                break
-
-            # Remember all fruitless paths to give a decent error report if module isn't found
-            # Note that this aren't all searched paths for a particular module,
-            # since the difference between an module and a facility inside a module isn't always known a priori
-            self.program.searchedModulePaths.extend ([self.pythonSourcePath, self.javascriptSourcePath])
-        else:
-            # If even the target can't be loaded then there's a problem with this module, root or not
-            # However, loading a module is allowed to fail (see self.revisit_ImportFrom)
-            # In that case this error is swallowed, but searchedModulePath is retained,
-            # because searching in the swallowing except branch may also fail and should mention ALL searched paths
-            raise utils.Error (
-                message = '\n\tImport error, can\'t find any of:\n\t\t{}\n'.format ('\n\t\t'. join (self.program.searchedModulePaths))
-            )
 
     def generateJavascriptAndPrettyMap (self):
         utils.log (False, 'Generating code for module: {}\n', self.targetPath)
@@ -853,8 +859,9 @@ class Generator (ast.NodeVisitor):
             del self.tempIndices [name]
 
     def useModule (self, name):
-        self.module.program.importStack [-1][1] = self.lineNr               # Remember line nr of import statement for the error report
-        return self.module.program.provide (name, filter = self.filterId)   # Must be done first because it can generate a healthy exception
+        return ImportedModule(self.module.program, name, __name__=None, filter=self.filterId)
+        # self.module.program.importStack [-1][1] = self.lineNr               # Remember line nr of import statement for the error report
+        # return self.module.program.provide (name, filter = self.filterId)   # Must be done first because it can generate a healthy exception
 
     def isCall (self, node, name):
         return type (node) == ast.Call and type (node.func) == ast.Name and node.func.id == name
